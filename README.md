@@ -39,6 +39,9 @@ cosnt search = [
     {
         family: "Papyrus",
         style: "Regular"
+    },
+    {
+      family: "Arial"
     }
 ]
 
@@ -53,6 +56,9 @@ const fontList = systemFonts.findFontsSync(search);
 ```
 ### Notice
 This library will not throw an error if it finds a bad or incomplete font. It is designed to skip over any fonts which it has trouble reading.
+
+### Work In Progress
+Method to check if a font is installed, and install it if not.
 
 ### npm Scripts
 Run the tests:
