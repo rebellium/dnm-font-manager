@@ -1,47 +1,54 @@
-# system-font-families
-Node lib for getting system font families (all TTF and OTF) using pure JavaScript.
+# dnm-font-manager
+Search system fonts with family and style using pure JavaScript, forked from rBurgett/system-font-families
 
 ### Installation
 ```
-$ npm install system-font-families
+$ npm install dnm-font-manager
 ```
-### Modern Usage
+
+### Get all fonts
+You can get more informations about fonts with `getFontsExtended()` and `getFontsExtendedSync()` rather than `getFonts()` and `getFontsSync()`
 ```
-import SystemFonts from 'system-font-families';
+const SystemFonts = require('dnm-font-manager').default;
 
 const systemFonts = new SystemFonts();
 
 // asynchronous
-systemFonts.getFonts().then(
-  (res) => {
-    // res is an array of font family strings
-    // do something with the response
-  },
-  (err) => // handle the error
-);
+systemFonts.getFonts()
+  .then( res => {
+    console.log(res)
+  })
+  .catch(err => console.log(err))
 
 // synchronous
 const fontList = systemFonts.getFontsSync();
 
 ```
-### Older Usage
-```
-var SystemFonts = require('system-font-families').default;
 
-var systemFonts = new SystemFonts();
+### Find fonts with family and styles
+```
+var SystemFonts = require('dnm-font-manager').default;
+
+const systemFonts = new SystemFonts();
+
+cosnt search = [
+    {
+        family: "Source Sans Pro",
+        style: ["Black", "Semibold Italic"]
+    },
+    {
+        family: "Papyrus",
+        style: "Regular"
+    }
+]
 
 // asynchronous
-systemFonts.getFonts().then(
-  function(res) {
-    // do something with the response
-  },
-  function(err) {
-    // handle the error
-  }
-);
+systemFonts.findFonts(search).then( res => {
+    console.log(res);
+}).catch(err => console.log(err))
 
 // synchronous
-var fontList = systemFonts.getFontsSync();
+const fontList = systemFonts.findFontsSync(search);
 
 ```
 ### Notice
@@ -61,7 +68,7 @@ Watch the `src` directory and automatically recompile on changes:
 $ npm run watch
 ```
 ### Contributions
-Contributions are welcome! If you have any issues and/or contributions you would like to make, feel free to file an issue and/or issue a pull reuqest.
+Contributions are welcome! If you have any issues and/or contributions you would like to make, feel free to file an issue and/or issue a pull request.
 
 ### License
 Apache License Version 2.0

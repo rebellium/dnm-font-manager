@@ -1,7 +1,7 @@
 {
-  "name": "system-font-families",
+  "name": "dnm-font-manager",
   "version": "0.4.1",
-  "description": "Get system font families (all TTF and OTF) using pure JavaScript",
+  "description": "Search system fonts with family and style using pure JavaScript, forked from rBurgett/system-font-families",
   "main": "dist/main.js",
   "scripts": {
     "prepublish": "yarn build",
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rBurgett/system-font-families.git"
+    "url": "git+https://github.com/devdanim/dnm-font-manager.git"
   },
   "devDependencies": {
     "babel-cli": "^6.7.5",
@@ -25,10 +25,10 @@
     "mocha": "^2.4.5",
     "should": "^8.3.0"
   },
-  "author": "Ryan Burgett",
+  "author": "Adrien du Repaire",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/rBurgett/system-font-families/issues"
+    "url": "https://github.com/devdanim/dnm-font-manager/issues"
   },
   "dependencies": {
     "babel-polyfill": "^6.23.0",

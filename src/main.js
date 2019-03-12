@@ -41,11 +41,13 @@ const filterReadableFonts = arr => arr
 
 const tableToObj = (obj, file, systemFont) => {
     return {
-        family: obj['1'],
-        subFamily: obj['2'],
+        family: obj['16'] ? obj['16'] : obj['1'],
+        subFamily: obj['17'] ? obj['17'] : obj['2'],
         postscript: obj['6'],
         file,
-        systemFont
+        systemFont,
+        alternativeFamily: obj['16'],
+        alternativeSubFamily: obj['17']
     };
 };
 
@@ -200,7 +202,6 @@ const SystemFonts = function(options = {}) {
             }, [])
             .filter(data => data ? true : false)
             .reduce(extendedReducer, new Map());
-
         const namesArr = [...names.values()]
             .sort((a, b) => a.family.localeCompare(b.family));
 
@@ -230,6 +231,46 @@ const SystemFonts = function(options = {}) {
             }, {});
         return Object.keys(names).sort((a, b) => a.localeCompare(b));
     };
+
+    this.searchFonts = (fonts, search) => {
+        const found = []
+        for(var n=0; n<search.length; n++) {
+            for(var i=0; i<fonts.length; i++) {
+                if(search[n].family === fonts[i].family) {
+                    let foundFiles = null;
+                    let { style } = search[n]
+                    const { files } = fonts[i]
+                    if(style) {
+                        if(typeof style !== "object") style = [style]
+                        for(var s=0; s<style.length; s++) {
+                            if(!foundFiles) foundFiles = {};
+                            if(files[style[s]]) foundFiles[style[s]] = files[style[s]]
+                        }
+                    } else foundFiles = files
+                    if(foundFiles !== null) {
+                        search[n].files = foundFiles
+                        found.push(search[n]);
+                    }
+                    break;
+                }
+            }
+        }
+        return found;
+    }
+
+    this.findFonts = (search) => {
+        return new Promise( (resolve, reject) => {
+            this.getFontsExtended()
+                .then(fonts => {
+                    resolve(this.searchFonts(fonts, search))
+                }).catch(err => reject(err));
+        })
+    }
+
+    this.findFontsSync = (search) => {
+        const fonts = this.getFontsExtendedSync()
+        return this.searchFonts(fonts, search)
+    }
 
 };
 
