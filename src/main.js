@@ -234,28 +234,42 @@ const SystemFonts = function(options = {}) {
 
     this.searchFonts = (fonts, search) => {
         const found = []
+        const missing = []
         for(var n=0; n<search.length; n++) {
+            let found_font = false;
+            const { family } = search[n]
             for(var i=0; i<fonts.length; i++) {
-                if(search[n].family === fonts[i].family) {
-                    let foundFiles = null;
+                if(family === fonts[i].family) {
+                    found_font = true;
                     let { style } = search[n]
                     const { files } = fonts[i]
                     if(style) {
                         if(typeof style !== "object") style = [style]
                         for(var s=0; s<style.length; s++) {
-                            if(!foundFiles) foundFiles = {};
-                            if(files[style[s]]) foundFiles[style[s]] = files[style[s]]
+                            const return_font = {
+                                family,
+                                style: style[s],
+                            }
+                            if(files[style[s]]) {
+                                return_font.file = files[style[s]]
+                                found.push(return_font)
+                            } else missing.push(return_font)
                         }
-                    } else foundFiles = files
-                    if(foundFiles !== null) {
-                        search[n].files = foundFiles
-                        found.push(search[n]);
+                    } else {
+                        for(var key in files) {
+                            found.push({
+                                family,
+                                style: key,
+                                file: files[key]
+                            })
+                        }
                     }
                     break;
                 }
             }
+            if(!found_font) missing.push({ family })
         }
-        return found;
+        return { found, missing };
     }
 
     this.findFonts = (search) => {

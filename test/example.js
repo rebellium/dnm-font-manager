@@ -9,6 +9,12 @@ systemFonts.findFonts([
     {
         family: "Papyrus",
         style: "Regular"
+    },
+    {
+        family: "Arial"
+    },
+    {
+        family: "Aril"
     }
 ]).then( result => {
     console.log(result);
