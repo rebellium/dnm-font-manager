@@ -232,31 +232,55 @@ const SystemFonts = function(options = {}) {
         return Object.keys(names).sort((a, b) => a.localeCompare(b));
     };
 
-    this.searchFonts = (fonts, search) => {
+    this.searchFonts = (fonts, search_request) => {
+        const search = []
+        search_request.forEach(new_search => {
+            let { family, style } = new_search
+            if(style && typeof style !== "object") style = [style]
+            let is_sorted = false
+            for(let i=0; i<search.length; i++) {
+                if(search[i].family === family) {
+                    is_sorted = true
+                    if(!style) search[i] = new_search
+                    else if(search[i].style) {
+                        style.forEach(new_style => {
+                            if(search[i].style.indexOf(new_style) === -1) {
+                                search[i].style.push(new_style)
+                            }
+                        })
+                    }
+                    break;
+                }
+            }
+            if(!is_sorted) {
+                const new_search = { family }
+                if(style) new_search.style = style
+                search.push(new_search)
+            }
+        })
+
         const found = []
         const missing = []
-        for(var n=0; n<search.length; n++) {
+        search.forEach(new_search => {
             let found_font = false;
-            const { family } = search[n]
-            for(var i=0; i<fonts.length; i++) {
+            let { family, style } = new_search
+            for(let i=0; i<fonts.length; i++) {
                 if(family === fonts[i].family) {
                     found_font = true;
-                    let { style } = search[n]
                     const { files } = fonts[i]
                     if(style) {
-                        if(typeof style !== "object") style = [style]
-                        for(var s=0; s<style.length; s++) {
+                        style.forEach(new_style => {
                             const return_font = {
                                 family,
-                                style: style[s],
+                                style: new_style,
                             }
-                            if(files[style[s]]) {
-                                return_font.file = files[style[s]]
+                            if(files[new_style]) {
+                                return_font.file = files[new_style]
                                 found.push(return_font)
                             } else missing.push(return_font)
-                        }
+                        })
                     } else {
-                        for(var key in files) {
+                        for(let key in files) {
                             found.push({
                                 family,
                                 style: key,
@@ -267,8 +291,17 @@ const SystemFonts = function(options = {}) {
                     break;
                 }
             }
-            if(!found_font) missing.push({ family })
-        }
+            if(!found_font) {
+                if(style) {
+                    style.forEach(fontStyle => {
+                        missing.push({
+                            family,
+                            style: fontStyle
+                        })
+                    })
+                } else missing.push({family})
+            }
+        })
         return { found, missing };
     }
 
