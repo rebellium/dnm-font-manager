@@ -117,6 +117,7 @@ const SystemFonts = function(options = {}) {
             const winDir = process.env.windir || process.env.WINDIR;
             directories = [
                 ...directories,
+                path.join(path.resolve(process.env.APPDATA, ".."), 'Local', 'Microsoft', 'Windows', 'Fonts'),
                 path.join(winDir, 'Fonts')
             ];
         } else { // some flavor of Linux, most likely
