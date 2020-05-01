@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import ttfInfo from 'ttfinfo';
+import { spawn } from 'child_process';
 
 const getPlatform = () => (process.platform === 'darwin') ? 'osx' : (/win/.test(process.platform) ? 'windows' : 'linux');
 
@@ -85,7 +86,7 @@ const extendedReducer = (m, { family, subFamily, file, postscript, systemFont })
     }
 };
 
-const SystemFonts = function(options = {}) {
+const SystemFonts = function (options = {}) {
 
     const { ignoreSystemFonts = false, customDirs = [] } = options;
 
@@ -117,7 +118,7 @@ const SystemFonts = function(options = {}) {
             const winDir = process.env.windir || process.env.WINDIR;
             directories = [
                 ...directories,
-                path.join(path.resolve(process.env.APPDATA, ".."), 'Local', 'Microsoft', 'Windows', 'Fonts'),
+                path.join(path.resolve(process.env.APPDATA, '..'), 'Local', 'Microsoft', 'Windows', 'Fonts'),
                 path.join(winDir, 'Fonts')
             ];
         } else { // some flavor of Linux, most likely
@@ -234,91 +235,199 @@ const SystemFonts = function(options = {}) {
     };
 
     this.searchFonts = (fonts, search_request) => {
-        const search = []
+        const search = [];
         search_request.forEach(new_search => {
-            let { family, style } = new_search
-            if(style && typeof style !== "object") style = [style]
-            let is_sorted = false
-            for(let i=0; i<search.length; i++) {
-                if(search[i].family === family) {
-                    is_sorted = true
-                    if(!style) search[i] = new_search
-                    else if(search[i].style) {
+            let { family, style } = new_search;
+            if (style && typeof style !== 'object') style = [style];
+            let is_sorted = false;
+            for (let i = 0; i < search.length; i++) {
+                if (search[i].family === family) {
+                    is_sorted = true;
+                    if (!style) search[i] = new_search;
+                    else if (search[i].style) {
                         style.forEach(new_style => {
-                            if(search[i].style.indexOf(new_style) === -1) {
-                                search[i].style.push(new_style)
+                            if (search[i].style.indexOf(new_style) === -1) {
+                                search[i].style.push(new_style);
                             }
-                        })
+                        });
                     }
                     break;
                 }
             }
-            if(!is_sorted) {
-                const new_search = { family }
-                if(style) new_search.style = style
-                search.push(new_search)
+            if (!is_sorted) {
+                const new_search = { family };
+                if (style) new_search.style = style;
+                search.push(new_search);
             }
-        })
+        });
 
-        const found = []
-        const missing = []
+        const found = [];
+        const missing = [];
         search.forEach(new_search => {
             let found_font = false;
-            let { family, style } = new_search
-            for(let i=0; i<fonts.length; i++) {
-                if(family === fonts[i].family) {
+            const { family, style } = new_search;
+            for (let i = 0; i < fonts.length; i++) {
+                if (family === fonts[i].family) {
                     found_font = true;
-                    const { files } = fonts[i]
-                    if(style) {
+                    const { files } = fonts[i];
+                    if (style) {
                         style.forEach(new_style => {
                             const return_font = {
                                 family,
-                                style: new_style,
-                            }
-                            if(files[new_style]) {
-                                return_font.file = files[new_style]
-                                found.push(return_font)
-                            } else missing.push(return_font)
-                        })
+                                style: new_style
+                            };
+                            if (files[new_style]) {
+                                return_font.file = files[new_style];
+                                found.push(return_font);
+                            } else missing.push(return_font);
+                        });
                     } else {
-                        for(let key in files) {
+                        for (const key in files) {
                             found.push({
                                 family,
                                 style: key,
                                 file: files[key]
-                            })
+                            });
                         }
                     }
                     break;
                 }
             }
-            if(!found_font) {
-                if(style) {
+            if (!found_font) {
+                if (style) {
                     style.forEach(fontStyle => {
                         missing.push({
                             family,
                             style: fontStyle
-                        })
-                    })
-                } else missing.push({family})
+                        });
+                    });
+                } else missing.push({ family });
             }
-        })
+        });
         return { found, missing };
-    }
+    };
 
     this.findFonts = (search) => {
-        return new Promise( (resolve, reject) => {
+        return new Promise((resolve, reject) => {
             this.getFontsExtended()
                 .then(fonts => {
-                    resolve(this.searchFonts(fonts, search))
+                    resolve(this.searchFonts(fonts, search));
                 }).catch(err => reject(err));
-        })
-    }
+        });
+    };
 
     this.findFontsSync = (search) => {
-        const fonts = this.getFontsExtendedSync()
-        return this.searchFonts(fonts, search)
-    }
+        const fonts = this.getFontsExtendedSync();
+        return this.searchFonts(fonts, search);
+    };
+
+    // Do not use if you haven't admin rights
+    this._DEPRECATED_jsInstallFonts = (fonts) => new Promise((resolve, reject) => {
+        if (getPlatform() !== 'windows') reject('Installation method isn\'t available with your OS');
+        else {
+            const winDir = process.env.windir || process.env.WINDIR;
+            const fontsDir = path.join(winDir, 'Fonts');
+            const promises = [];
+            fonts.forEach(font => {
+                const fileName = path.basename(font);
+                promises.push(
+                    new Promise((resolve, reject) => {
+                        const fontPath = fontsDir + '/' + fileName;
+                        fs.copyFile(font, fontPath, (err) => {
+                            if (err) reject(err);
+                            else resolve(fontPath);
+                        });
+                    })
+                );
+            });
+            Promise.all(promises).then(paths => {
+                resolve(paths);
+            }).catch(e => reject(e));
+        }
+    });
+
+    this.installFonts = (fonts, tmpDir = null, timeout = 20000) => new Promise((resolve, reject) => {
+        if(getPlatform() !== 'windows') reject('Installation method isn\'t available with your OS');
+        else {
+            let tmpScript = null;
+            const cleanTmpScript = () => {
+                if (tmpScript) fs.unlink(tmpScript, (err) => { if (err) console.error(err); });
+            };
+            const handleError = err => {
+                cleanTmpScript();
+                reject(err);
+            };
+            let vbsContent = `
+                Const FONTS = &H14&
+                nInstall = 0
+                Set objShell = CreateObject("Shell.Application")
+                Set ofso = CreateObject("Scripting.FileSystemObject")
+                Set oWinFonts = objShell.Namespace(FONTS)
+                Set wshShell = CreateObject( "WScript.Shell" )
+                strUserName = wshShell.ExpandEnvironmentStrings( "%USERNAME%" )
+                oWinFonts2 = "C:\\Users\\" & strUserName & "\\AppData\\Local\\Microsoft\\Windows\\Fonts"
+                Dim sources(${fonts.length})
+            `;
+            fonts.forEach((font, index) => {
+                vbsContent += `sources(${index}) = "${path.resolve(font)}"\n`;
+            });
+            vbsContent += `
+                Set regEx = New RegExp
+                regEx.IgnoreCase = True
+                regEx.Pattern = "([\\w\\s]+?)(_[^_]*)?(\\.(ttf|otf))$"
+                FOR EACH FontFile IN sources
+                fontFileName = ofso.GetFileName(FontFile)
+                IF regEx.Test(fontFileName) THEN    
+                Set objMatch = regEx.Execute(fontFileName)
+                otherName = Replace(fontFileName,objMatch.Item(0).Submatches(2),"") & "_0" & objMatch.Item(0).Submatches(2)
+                normalFontPath = oWinFonts.Self.Path & "\\" & fontFileName
+                normalFontPath2 = oWinFonts2 & "\\" & fontFileName
+                otherFontPath = oWinFonts.Self.Path & "\\" & otherName
+                otherFontPath2 = oWinFonts2 & "\\" & otherName
+                IF NOT ofso.FileExists(normalFontPath) AND NOT ofso.FileExists(normalFontPath2) AND NOT ofso.FileExists(otherFontPath) AND NOT ofso.FileExists(otherFontPath2) THEN
+                oWinFonts.CopyHere FontFile
+                nInstall = nInstall + 1
+                END IF
+                END IF
+                NEXT
+                wscript.echo nInstall
+            `;
+            if (!tmpDir) tmpDir = __dirname;
+            tmpScript = path.normalize(tmpDir + '/tmp_node_font_install.vbs');
+            fs.writeFile(tmpScript, vbsContent, 'utf-8', (err) => {
+                if (err) handleError(err);
+                else {
+                    const process = spawn('cscript.exe', [tmpScript]);
+                    let data = null;
+                    let processErr = null;
+                    let end = false;
+                    process.stdout.on('data', (_data) => {
+                        _data = _data.toString('utf8');
+                        data = _data;
+                    });
+    
+                    process.stderr.on('data', (_err) => {
+                        _err = _err.toString('utf8');
+                        if (_err) processErr = _err;
+                    });
+
+                    const autoKill = setTimeout(() => {
+                        if (!end) process.kill();
+                    }, timeout);
+    
+                    process.on('close', (code) => {
+                        end = true;
+                        clearTimeout(autoKill);
+                        if (processErr) handleError(processErr);
+                        else {
+                            cleanTmpScript();
+                            resolve(data);
+                        }
+                    });
+                }
+            });
+        }
+    });
 
 };
 
