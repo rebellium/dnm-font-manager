@@ -4,7 +4,6 @@
   "description": "Search system fonts with family and style using pure JavaScript, forked from rBurgett/system-font-families",
   "main": "dist/main.js",
   "scripts": {
-    "prepublish": "yarn build",
     "build": "babel src --out-dir dist",
     "babel-plugin-transform-runtime": "^6.22.0",
     "watch": "babel src --watch --out-dir dist",
