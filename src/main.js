@@ -366,6 +366,7 @@ const SystemFonts = function (options = {}) {
             const fontsToInstall = [];
             const searchFonts = [];
             fonts.forEach((font) => {
+                font = path.resolve(font);
                 try {
                     const { family, subFamily } = filterFontInfos(ttfInfo.getSync(font).tables.name);
                     searchFonts.push({ family, style: subFamily, path: font });
@@ -404,7 +405,7 @@ const SystemFonts = function (options = {}) {
                     Dim sources(${fonts.length})
                 `;
                 missingFonts.forEach((font, index) => {
-                    vbsContent += `sources(${index}) = "${path.resolve(font.path)}"\n`;
+                    vbsContent += `sources(${index}) = "${font.path}"\n`;
                 });
                 vbsContent += `
                     Set regEx = New RegExp
@@ -466,10 +467,7 @@ const SystemFonts = function (options = {}) {
                                 for(let i=0; i<missingFonts.length; i++) {
                                     const search = this.searchFonts(newInstalledFonts, [missingFonts[i]]);
                                     const { found } = search;
-                                    if(found.length > 0) {
-                                        foundFonts.push(found[0]);
-                                        installed.push(missingFonts[i].path);
-                                    }
+                                    if(found.length > 0) installed.push({ ...found[0], path: missingFonts[i].path });
                                     else newMissingFonts.push(missingFonts[i]);
                                 }
                                 resolve({
