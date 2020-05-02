@@ -40,15 +40,22 @@ const filterReadableFonts = arr => arr
         return extension === '.ttf' || extension === '.otf';
     });
 
-const tableToObj = (obj, file, systemFont) => {
+const filterFontInfos = obj => {
     return {
         family: obj['16'] ? obj['16'] : obj['1'],
         subFamily: obj['17'] ? obj['17'] : obj['2'],
         postscript: obj['6'],
-        file,
-        systemFont,
         alternativeFamily: obj['16'],
         alternativeSubFamily: obj['17']
+    };
+};
+
+const tableToObj = (obj, file, systemFont) => {
+    const infos = filterFontInfos(obj);
+    return {
+        ...infos,
+        file,
+        systemFont
     };
 };
 
@@ -88,6 +95,8 @@ const extendedReducer = (m, { family, subFamily, file, postscript, systemFont })
 
 const SystemFonts = function (options = {}) {
 
+    let allFontFiles = [];
+    let fontFiles = [];
     const { ignoreSystemFonts = false, customDirs = [] } = options;
 
     if (!Array.isArray(customDirs)) {
@@ -142,12 +151,17 @@ const SystemFonts = function (options = {}) {
             }, []);
     };
 
-    const allFontFiles = getFontFiles();
+    
 
     // this list includes all TTF, OTF, OTC, and DFONT files
     this.getAllFontFilesSync = () => [...allFontFiles];
 
-    const fontFiles = filterReadableFonts(allFontFiles);
+    this.initFontFiles = () => {
+        allFontFiles = getFontFiles();
+        fontFiles = filterReadableFonts(allFontFiles);
+    };
+
+    this.initFontFiles();
 
     // this list includes all TTF and OTF files (these are the ones we parse in this lib)
     this.getFontFilesSync = () => [...fontFiles];
@@ -349,83 +363,135 @@ const SystemFonts = function (options = {}) {
     this.installFonts = (fonts, tmpDir = null, timeout = 20000) => new Promise((resolve, reject) => {
         if(getPlatform() !== 'windows') reject('Installation method isn\'t available with your OS');
         else {
-            let tmpScript = null;
-            const cleanTmpScript = () => {
-                if (tmpScript) fs.unlink(tmpScript, (err) => { if (err) console.error(err); });
-            };
-            const handleError = err => {
-                cleanTmpScript();
-                reject(err);
-            };
-            let vbsContent = `
-                Const FONTS = &H14&
-                nInstall = 0
-                Set objShell = CreateObject("Shell.Application")
-                Set ofso = CreateObject("Scripting.FileSystemObject")
-                Set oWinFonts = objShell.Namespace(FONTS)
-                Set wshShell = CreateObject( "WScript.Shell" )
-                strUserName = wshShell.ExpandEnvironmentStrings( "%USERNAME%" )
-                oWinFonts2 = "C:\\Users\\" & strUserName & "\\AppData\\Local\\Microsoft\\Windows\\Fonts"
-                Dim sources(${fonts.length})
-            `;
-            fonts.forEach((font, index) => {
-                vbsContent += `sources(${index}) = "${path.resolve(font)}"\n`;
-            });
-            vbsContent += `
-                Set regEx = New RegExp
-                regEx.IgnoreCase = True
-                regEx.Pattern = "([\\w\\s]+?)(_[^_]*)?(\\.(ttf|otf))$"
-                FOR EACH FontFile IN sources
-                fontFileName = ofso.GetFileName(FontFile)
-                IF regEx.Test(fontFileName) THEN    
-                Set objMatch = regEx.Execute(fontFileName)
-                otherName = Replace(fontFileName,objMatch.Item(0).Submatches(2),"") & "_0" & objMatch.Item(0).Submatches(2)
-                normalFontPath = oWinFonts.Self.Path & "\\" & fontFileName
-                normalFontPath2 = oWinFonts2 & "\\" & fontFileName
-                otherFontPath = oWinFonts.Self.Path & "\\" & otherName
-                otherFontPath2 = oWinFonts2 & "\\" & otherName
-                IF NOT ofso.FileExists(normalFontPath) AND NOT ofso.FileExists(normalFontPath2) AND NOT ofso.FileExists(otherFontPath) AND NOT ofso.FileExists(otherFontPath2) THEN
-                oWinFonts.CopyHere FontFile
-                nInstall = nInstall + 1
-                END IF
-                END IF
-                NEXT
-                wscript.echo nInstall
-            `;
-            if (!tmpDir) tmpDir = __dirname;
-            tmpScript = path.normalize(tmpDir + '/tmp_node_font_install.vbs');
-            fs.writeFile(tmpScript, vbsContent, 'utf-8', (err) => {
-                if (err) handleError(err);
-                else {
-                    const process = spawn('cscript.exe', [tmpScript]);
-                    let data = null;
-                    let processErr = null;
-                    let end = false;
-                    process.stdout.on('data', (_data) => {
-                        _data = _data.toString('utf8');
-                        data = _data;
-                    });
-    
-                    process.stderr.on('data', (_err) => {
-                        _err = _err.toString('utf8');
-                        if (_err) processErr = _err;
-                    });
-
-                    const autoKill = setTimeout(() => {
-                        if (!end) process.kill();
-                    }, timeout);
-    
-                    process.on('close', (code) => {
-                        end = true;
-                        clearTimeout(autoKill);
-                        if (processErr) handleError(processErr);
-                        else {
-                            cleanTmpScript();
-                            resolve(data);
-                        }
-                    });
+            const fontsToInstall = [];
+            const searchFonts = [];
+            fonts.forEach((font) => {
+                try {
+                    const { family, subFamily } = filterFontInfos(ttfInfo.getSync(font).tables.name);
+                    searchFonts.push({ family, style: subFamily, path: font });
+                } catch (e) {
+                    console.error(e);
+                    fontsToInstall.push(font);
                 }
             });
+            const installedFonts = this.getFontsExtendedSync();
+            const foundFonts = [];
+            const missingFonts = [];
+            for(let i=0; i<searchFonts.length; i++) {
+                const search = searchFonts[i];
+                const { found, missing } = this.searchFonts(installedFonts, [search]);
+                if(found.length > 0) foundFonts.push(found[0]);
+                if(missing.length > 0) missingFonts.push({ ...missing[0], path: search.path });
+            }
+            if(missingFonts.length > 0) {
+                let tmpScript = null;
+                const cleanTmpScript = () => {
+                    if (tmpScript) fs.unlink(tmpScript, (err) => { if (err) console.error(err); });
+                };
+                const handleError = err => {
+                    cleanTmpScript();
+                    reject(err);
+                };
+                let vbsContent = `
+                    Const FONTS = &H14&
+                    nInstall = 0
+                    Set objShell = CreateObject("Shell.Application")
+                    Set ofso = CreateObject("Scripting.FileSystemObject")
+                    Set oWinFonts = objShell.Namespace(FONTS)
+                    Set wshShell = CreateObject( "WScript.Shell" )
+                    strUserName = wshShell.ExpandEnvironmentStrings( "%USERNAME%" )
+                    oWinFonts2 = "C:\\Users\\" & strUserName & "\\AppData\\Local\\Microsoft\\Windows\\Fonts"
+                    Dim sources(${fonts.length})
+                `;
+                missingFonts.forEach((font, index) => {
+                    vbsContent += `sources(${index}) = "${path.resolve(font.path)}"\n`;
+                });
+                vbsContent += `
+                    Set regEx = New RegExp
+                    regEx.IgnoreCase = True
+                    regEx.Pattern = "([\\w\\s]+?)(_[^_]*)?(\\.(ttf|otf))$"
+                    FOR EACH FontFile IN sources
+                    fontFileName = ofso.GetFileName(FontFile)
+                    IF regEx.Test(fontFileName) THEN    
+                    Set objMatch = regEx.Execute(fontFileName)
+                    otherName = Replace(fontFileName,objMatch.Item(0).Submatches(2),"") & "_0" & objMatch.Item(0).Submatches(2)
+                    normalFontPath = oWinFonts.Self.Path & "\\" & fontFileName
+                    normalFontPath2 = oWinFonts2 & "\\" & fontFileName
+                    otherFontPath = oWinFonts.Self.Path & "\\" & otherName
+                    otherFontPath2 = oWinFonts2 & "\\" & otherName
+                    IF NOT ofso.FileExists(normalFontPath) AND NOT ofso.FileExists(normalFontPath2) AND NOT ofso.FileExists(otherFontPath) AND NOT ofso.FileExists(otherFontPath2) THEN
+                    oWinFonts.CopyHere FontFile
+                    nInstall = nInstall + 1
+                    END IF
+                    END IF
+                    NEXT
+                    wscript.echo nInstall
+                `;
+                if (!tmpDir) tmpDir = __dirname;
+                tmpScript = path.normalize(tmpDir + '/tmp_node_font_install.vbs');
+                fs.writeFile(tmpScript, vbsContent, 'utf-8', (err) => {
+                    if (err) handleError(err);
+                    else {
+                        const process = spawn('cscript.exe', [tmpScript]);
+                        let data = null;
+                        let processErr = null;
+                        let end = false;
+                        process.stdout.on('data', (_data) => {
+                            _data = _data.toString('utf8');
+                            data = isNaN(_data) ? 0 : parseInt(_data);
+                        });
+        
+                        process.stderr.on('data', (_err) => {
+                            _err = _err.toString('utf8');
+                            if (_err) processErr = _err;
+                        });
+    
+                        const autoKill = setTimeout(() => {
+                            if (!end) {
+                                console.error('Kill font install process after ' + timeout/1000 + ' seconds timeout');
+                                process.kill();
+                            }
+                        }, timeout);
+        
+                        process.on('close', () => {
+                            end = true;
+                            clearTimeout(autoKill);
+                            if (processErr) handleError(processErr);
+                            else {
+                                cleanTmpScript();
+                                this.initFontFiles();
+                                const newInstalledFonts = this.getFontsExtendedSync();
+                                const newMissingFonts = [];
+                                const installed = [];
+                                for(let i=0; i<missingFonts.length; i++) {
+                                    const search = this.searchFonts(newInstalledFonts, [missingFonts[i]]);
+                                    const { found } = search;
+                                    if(found.length > 0) {
+                                        foundFonts.push(found[0]);
+                                        installed.push(missingFonts[i].path);
+                                    }
+                                    else newMissingFonts.push(missingFonts[i]);
+                                }
+                                resolve({
+                                    success: newMissingFonts.length === 0,
+                                    found: foundFonts,
+                                    missing: newMissingFonts,
+                                    installed,
+                                    vbsInstalledQte: data
+                                });
+                            }
+                        });
+                    }
+                });
+            } else {
+                resolve({
+                    success: true,
+                    found: foundFonts,
+                    missing: [],
+                    installed: [],
+                    vbsInstalledQte: 0
+                });
+            }
         }
     });
 

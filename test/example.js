@@ -1,3 +1,4 @@
+const fs = require('fs');
 const SystemFonts = require('../dist/main').default;
 
 const systemFonts = new SystemFonts();
@@ -29,6 +30,10 @@ systemFonts.findFonts([
     //console.log(result);
 });
 
-systemFonts.getFontsExtended().then(res => console.log(res));
+//systemFonts.getFontsExtended().then(res => console.log(res));
 
-systemFonts.installFonts(['test/test-folder/LORENZA.ttf', 'test/test-folder/Pineapple Slice.ttf']).then(res => console.log(res)).catch(e => console.error('ERR', e));
+const dir = 'test/test-folder';
+fs.readdir(dir, (err, files) => {
+    const arr = files.map(file => dir + '/' + file);
+    systemFonts.installFonts(arr).then(res => console.log(res)).catch(e => console.error('ERR', e));
+});
