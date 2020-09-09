@@ -1,6 +1,6 @@
 {
   "name": "dnm-font-manager",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Search system fonts with family and style using pure JavaScript, forked from rBurgett/system-font-families",
   "main": "dist/main.js",
   "scripts": {
@@ -22,6 +22,7 @@
     "babel-preset-latest": "^6.24.1",
     "babel-register": "^6.7.2",
     "eslint": "^3.14.1",
+    "fontkit": "^1.8.1",
     "lodash": "^4.17.20",
     "mocha": "^8.1.3",
     "should": "^8.3.0"

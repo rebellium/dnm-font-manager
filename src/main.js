@@ -536,8 +536,9 @@ const SystemFonts = function (options = {}) {
             fonts.forEach((font) => {
                 font = path.resolve(font);
                 try {
-                    const fontInfos = this.getFontInfoSync(font);
+                    let fontInfos = this.getFontInfoSync(font);
                     if(fontInfos) {
+                        if(fontInfos.length) fontInfos = fontInfos[0];
                         const { family, subFamily } = fontInfos;
                         searchFonts.push({ family, style: subFamily, path: font });
                     } else fontsToInstall.push(font);
