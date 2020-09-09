@@ -581,7 +581,7 @@ const SystemFonts = function (options = {}) {
                 vbsContent += `
                     Set regEx = New RegExp
                     regEx.IgnoreCase = True
-                    regEx.Pattern = "([\\w\\s]+?)(_[^_]*)?(\\.(ttf|otf))$"
+                    regEx.Pattern = "([\\w\\s]+?)(_[^_]*)?(\\.(ttf|otf|ttc))$"
                     FOR EACH FontFile IN sources
                     fontFileName = ofso.GetFileName(FontFile)
                     IF regEx.Test(fontFileName) THEN    
