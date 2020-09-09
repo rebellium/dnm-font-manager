@@ -216,7 +216,7 @@ const SystemFonts = function (options = {}) {
 
     let allFontFiles = [];
     let fontFiles = [];
-    const { ignoreSystemFonts = false, customDirs = [] } = options;
+    const { ignoreSystemFonts = false, customDirs = [], fontkit } = options;
 
     const debug = (title, msg) => {
         if(options.debug) {
@@ -298,8 +298,8 @@ const SystemFonts = function (options = {}) {
     this.getFontInfo = (file) => new Promise(resolve1 => {
         ttfInfo.get(file, (err, fontMeta) => {
             if (!fontMeta) {
-                if(this.options.fontkit) {
-                    this.options.fontkit.open(file, null, (err2, fontMeta2) => {
+                if(fontkit) {
+                    fontkit.open(file, null, (err2, fontMeta2) => {
                         if(!fontMeta2) {
                             debug('Error reading font ' + file, err2);
                             resolve1(null);
@@ -326,8 +326,8 @@ const SystemFonts = function (options = {}) {
             return ttfInfoTableToObj(fontMeta.tables.name, file, !customFontFiles.has(file));
         } catch (err) {
             try {
-                if(this.options.fontkit) {
-                    const fontMeta2 = this.options.fontkit.openSync(file);
+                if(fontkit) {
+                    const fontMeta2 = fontkit.openSync(file);
                     const fonts = fontMeta2.fonts || fontMeta2;
                     const fontInfos = fonts.map(font => fontkitTableToObj(font, file, !customFontFiles.has(file)));
                     return fontInfos.length === 0 ? null : fontInfos.length === 1 ? fontInfos[0] : fontInfos;
