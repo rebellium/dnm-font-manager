@@ -1,7 +1,10 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import ttfInfo from 'ttfinfo';
 import { spawn } from 'child_process';
+import readChunk from 'read-chunk';
+import getFileType from 'file-type';
 
 const getPlatform = () => (process.platform === 'darwin') ? 'osx' : (/win/.test(process.platform) ? 'windows' : 'linux');
 
@@ -10,7 +13,6 @@ const recGetFile = (target) => {
     try {
         stats = fs.statSync(target);
     } catch (e) {
-        // console.error(e);
         return [];
     }
     if (stats.isDirectory()) {
@@ -19,15 +21,30 @@ const recGetFile = (target) => {
             files = fs.readdirSync(target);
         } catch (e) {
             console.error(e);
+            return [];
         }
         return files
             .reduce((arr, f) => {
+                if(f.toLowerCase() === 'deleted') return [];
                 return arr.concat(recGetFile(path.join(target, f)));
             }, []);
     } else {
         const ext = path.extname(target).toLowerCase();
         if (ext === '.ttf' || ext === '.otf' || ext === '.ttc' || ext === '.dfont') {
             return [target];
+        } else if (ext === '') {
+            // NOTE: Check files without extension, TypeKit on Windows does that.
+            const fontFileHeader = readChunk.sync(target, 0, getFileType.minimumBytes);
+            const fileType = getFileType(fontFileHeader);
+            if (!fileType) {
+                return [];
+            }
+
+            if (fileType.ext === 'ttf' || fileType.ext === 'otf' || fileType.ext === 'ttc') {
+                return [target];
+            }
+
+            return [];
         } else {
             return [];
         }
@@ -37,21 +54,35 @@ const recGetFile = (target) => {
 const filterReadableFonts = arr => arr
     .filter(f => {
         const extension = path.extname(f).toLowerCase();
-        return extension === '.ttf' || extension === '.otf';
+        if (extension === '.ttf' || extension === '.otf' || extension === '.ttc') {
+            return true;
+        }
+
+        const fontFileHeader = readChunk.sync(f, 0, getFileType.minimumBytes);
+        const fileType = getFileType(fontFileHeader);
+        if (!fileType) {
+            return false;
+        }
+
+        if (fileType.ext === 'ttf' || fileType.ext === 'otf') {
+            return true;
+        }
+
+        return false;
     });
 
-const filterFontInfos = obj => {
+const filterFontTtfInfos = obj => {
     return {
         family: obj['16'] ? obj['16'] : obj['1'],
         subFamily: obj['17'] ? obj['17'] : obj['2'],
         postscript: obj['6'],
-        alternativeFamily: obj['16'],
-        alternativeSubFamily: obj['17']
+        alternativeFamilies: [],
+        alternativeSubFamilies: []
     };
 };
 
-const tableToObj = (obj, file, systemFont) => {
-    const infos = filterFontInfos(obj);
+const ttfInfoTableToObj = (obj, file, systemFont) => {
+    const infos = filterFontTtfInfos(obj);
     return {
         ...infos,
         file,
@@ -59,7 +90,34 @@ const tableToObj = (obj, file, systemFont) => {
     };
 };
 
-const extendedReducer = (m, { family, subFamily, file, postscript, systemFont }) => {
+const fontkitTableToObj = (obj, file, systemFont) => {
+    const { familyName, subfamilyName, postscriptName, name } = obj;
+    const alternativeFamilies = [];
+    const alternativeSubFamilies = [];
+    if(name && name.records) {
+        const { preferredFamily, preferredSubfamily } = name.records;
+        if(preferredFamily) {
+            for(const key in preferredFamily) alternativeFamilies.push(preferredFamily[key]);
+        }
+        if(preferredSubfamily) {
+            for(const key in preferredSubfamily) alternativeSubFamilies.push(preferredSubfamily[key]);
+        }
+    }
+    const infos = {
+        family: familyName,
+        subFamily: subfamilyName,
+        postscript: postscriptName,
+        alternativeFamilies,
+        alternativeSubFamilies
+    };
+    return {
+        ...infos,
+        file,
+        systemFont
+    };
+};
+
+const extendedReducer = (m, { family, subFamily, file, postscript, systemFont, alternativeFamilies, alternativeSubFamilies }) => {
     if (m.has(family)) {
         const origFont = m.get(family);
         return m.set(family, {
@@ -76,6 +134,14 @@ const extendedReducer = (m, { family, subFamily, file, postscript, systemFont })
             postscriptNames: {
                 ...origFont.postscriptNames,
                 [subFamily]: postscript
+            },
+            alternativeFamilies: {
+                ...origFont.alternativeFamilies,
+                [subFamily]: alternativeFamilies
+            },
+            alternativeSubFamilies: {
+                ...origFont.alternativeSubFamilies,
+                [subFamily]: alternativeSubFamilies
             }
         });
     } else {
@@ -88,9 +154,62 @@ const extendedReducer = (m, { family, subFamily, file, postscript, systemFont })
             },
             postscriptNames: {
                 [subFamily]: postscript
+            },
+            alternativeFamilies: {
+                [subFamily]: alternativeFamilies
+            },
+            alternativeSubFamilies: {
+                [subFamily]: alternativeSubFamilies
             }
         });
     }
+};
+
+const reorderWithAlt = (fonts) => {
+    fonts.forEach(name => {
+        const { alternativeFamilies, alternativeSubFamilies, family } = name;
+        if(alternativeFamilies && alternativeSubFamilies) {
+            for(const type in alternativeFamilies) {
+                const altFamilies = alternativeFamilies[type];
+                altFamilies.forEach((altFamily, index) => {
+                    if(altFamily && family !== altFamily) {
+                        const file = name.files[type];
+                        const postscriptName = name.postscriptNames[type];
+                        const altSubFamily = alternativeSubFamilies[type][index];
+                        let existingFamily = null;
+                        for(let i=0; i<fonts.length; i++) {
+                            if(fonts[i].family === altFamily) {
+                                existingFamily = fonts[i];
+                                break;
+                            }
+                        }
+                        if(existingFamily) {
+                            if(existingFamily.subFamilies.indexOf(altSubFamily) === -1) {
+                                existingFamily.subFamilies.push(altSubFamily);
+                                existingFamily.files[altSubFamily] = file;
+                                existingFamily.postscriptNames[altSubFamily] = postscriptName;
+                            } 
+                        } else {
+                            fonts.push({
+                                family: altFamily,
+                                systemFont: name.systemFont,
+                                subFamilies: [altSubFamily],
+                                files: {
+                                   [altSubFamily]: file
+                                },
+                                postscriptNames: {
+                                    [altSubFamily]: postscriptName
+                                },
+                                alternativeFamilies: [],
+                                alternativeSubFamilies: []
+                            });
+                        }
+                    }
+                });
+            }
+        }
+    });
+    return fonts;
 };
 
 const SystemFonts = function (options = {}) {
@@ -98,6 +217,12 @@ const SystemFonts = function (options = {}) {
     let allFontFiles = [];
     let fontFiles = [];
     const { ignoreSystemFonts = false, customDirs = [] } = options;
+
+    const debug = (title, msg) => {
+        if(options.debug) {
+            console.log(title, typeof msg !== 'function' ? msg : msg());
+        }
+    };
 
     if (!Array.isArray(customDirs)) {
         throw new Error('customDirs must be an array of folder path strings');
@@ -121,7 +246,8 @@ const SystemFonts = function (options = {}) {
                 ...directories,
                 path.join(home, 'Library', 'Fonts'),
                 path.join('/', 'Library', 'Fonts'),
-                path.join('/', 'System', 'Library', 'Fonts')
+                path.join('/', 'System', 'Library', 'Fonts'),
+                path.join(os.homedir(), 'Library', 'Application Support', 'Adobe', 'CoreSync', 'plugins', 'livetype', '.r')
             ];
         } else if (platform === 'windows') {
             const winDir = process.env.windir || process.env.WINDIR;
@@ -129,6 +255,7 @@ const SystemFonts = function (options = {}) {
                 ...directories,
                 path.join(path.resolve(process.env.APPDATA, '..'), 'Local', 'Microsoft', 'Windows', 'Fonts'),
                 path.join(winDir, 'Fonts')
+                //path.join(os.homedir(), 'AppData', 'Roaming', 'Adobe', 'CoreSync', 'plugins', 'livetype', 'r')
             ];
         } else { // some flavor of Linux, most likely
             const home = process.env.HOME;
@@ -140,6 +267,8 @@ const SystemFonts = function (options = {}) {
                 path.join('/', 'usr', 'local', 'share', 'fonts')
             ];
         }
+
+        debug('Directories', directories);
 
         return directories
             .reduce((arr, d) => {
@@ -159,9 +288,58 @@ const SystemFonts = function (options = {}) {
     this.initFontFiles = () => {
         allFontFiles = getFontFiles();
         fontFiles = filterReadableFonts(allFontFiles);
+        // debug('All fonts after filter', () => {
+        //     fontFiles.forEach(font => console.log(font));
+        // });
     };
 
     this.initFontFiles();
+
+    this.getFontInfo = (file) => new Promise(resolve1 => {
+        ttfInfo.get(file, (err, fontMeta) => {
+            if (!fontMeta) {
+                if(this.options.fontkit) {
+                    this.options.fontkit.open(file, null, (err2, fontMeta2) => {
+                        if(!fontMeta2) {
+                            debug('Error reading font ' + file, err2);
+                            resolve1(null);
+                        } else {
+                            const fonts = fontMeta2.fonts || fontMeta2;
+                            const fontInfos = fonts.map(font => fontkitTableToObj(font, file, !customFontFiles.has(file)));
+                            resolve1(fontInfos.length === 0 ? null : fontInfos.length === 1 ? fontInfos[0] : fontInfos);
+                        }
+                    });
+                } else {
+                    debug('Error reading font ' + file, err);
+                    resolve1(null);
+                }
+            } else {
+                const fontInfos = ttfInfoTableToObj(fontMeta.tables.name, file, !customFontFiles.has(file));
+                resolve1(fontInfos);
+            }
+        });
+    });
+
+    this.getFontInfoSync = (file) => {
+        try {
+            const fontMeta = ttfInfo.getSync(file);
+            return ttfInfoTableToObj(fontMeta.tables.name, file, !customFontFiles.has(file));
+        } catch (err) {
+            try {
+                if(this.options.fontkit) {
+                    const fontMeta2 = this.options.fontkit.openSync(file);
+                    const fonts = fontMeta2.fonts || fontMeta2;
+                    const fontInfos = fonts.map(font => fontkitTableToObj(font, file, !customFontFiles.has(file)));
+                    return fontInfos.length === 0 ? null : fontInfos.length === 1 ? fontInfos[0] : fontInfos;
+                } else {
+                    debug('Error reading font ' + file, err);
+                }
+            } catch(err2) {
+                debug('Error reading font ' + file, err2);
+            }
+        }
+        return null;
+    };
 
     // this list includes all TTF and OTF files (these are the ones we parse in this lib)
     this.getFontFilesSync = () => [...fontFiles];
@@ -173,29 +351,22 @@ const SystemFonts = function (options = {}) {
         const filteredFontFiles = !ignoreSystemFonts ? [...fontFiles] : fontFiles
             .filter(f => customFontFiles.has(f));
 
-        filteredFontFiles
-            .forEach((file, i) => {
-                promiseList.push(new Promise(resolve1 => {
-                    ttfInfo.get(file, (err, fontMeta) => {
-                        if (!fontMeta) {
-                            resolve1(null);
-                        } else {
-                            resolve1(tableToObj(fontMeta.tables.name, file, !customFontFiles.has(file)));
-                        }
-                    });
-                }));
-            });
+        filteredFontFiles.forEach(file => promiseList.push(this.getFontInfo(file)));
         Promise.all(promiseList).then(
-            (res) => {
-
-                const names = res
-                    .filter(data => data ? true : false)
-                    .reduce(extendedReducer, new Map());
-
+            (_res) => {
+                const res = [];
+                _res.forEach(fonts => {
+                    if(fonts) {
+                        if(fonts.length) {
+                            fonts.forEach(font => res.push(font));
+                        } else res.push(fonts);
+                    }
+                });
+                const names = res.reduce(extendedReducer, new Map());
                 const namesArr = [...names.values()]
                     .sort((a, b) => a.family.localeCompare(b.family));
 
-                resolve(namesArr);
+                resolve(reorderWithAlt(namesArr));
             },
             (err) => reject(err)
         );
@@ -206,22 +377,19 @@ const SystemFonts = function (options = {}) {
         const filteredFontFiles = !ignoreSystemFonts ? [...fontFiles] : fontFiles
             .filter(f => customFontFiles.has(f));
 
-        const names = filteredFontFiles
-            .reduce((arr, file) => {
-                let data;
-                try {
-                    data = ttfInfo.getSync(file);
-                } catch (e) {
-                    return arr;
-                }
-                return arr.concat([tableToObj(data.tables.name, file, !customFontFiles.has(file))]);
-            }, [])
-            .filter(data => data ? true : false)
-            .reduce(extendedReducer, new Map());
+        const res = [];
+        filteredFontFiles.forEach(font => {
+            const metas = this.getFontInfoSync(font);
+            if(metas) {
+                if(metas.length) {
+                    metas.forEach(meta => res.push(meta));
+                } else res.push(metas);
+            }
+        });
+        const names = res.reduce(extendedReducer, new Map());
         const namesArr = [...names.values()]
             .sort((a, b) => a.family.localeCompare(b.family));
-
-        return namesArr;
+        return reorderWithAlt(namesArr);
     };
 
     this.getFonts = () => new Promise((resolve, reject) => {
@@ -368,8 +536,11 @@ const SystemFonts = function (options = {}) {
             fonts.forEach((font) => {
                 font = path.resolve(font);
                 try {
-                    const { family, subFamily } = filterFontInfos(ttfInfo.getSync(font).tables.name);
-                    searchFonts.push({ family, style: subFamily, path: font });
+                    const fontInfos = this.getFontInfoSync(font);
+                    if(fontInfos) {
+                        const { family, subFamily } = fontInfos;
+                        searchFonts.push({ family, style: subFamily, path: font });
+                    } else fontsToInstall.push(font);
                 } catch (e) {
                     console.error(e);
                     fontsToInstall.push(font);
