@@ -188,7 +188,7 @@ const reorderWithAlt = (fonts) => {
                                 existingFamily.subFamilies.push(altSubFamily);
                                 existingFamily.files[altSubFamily] = file;
                                 existingFamily.postscriptNames[altSubFamily] = postscriptName;
-                            } 
+                            }
                         } else {
                             fonts.push({
                                 family: altFamily,
@@ -247,6 +247,7 @@ const SystemFonts = function (options = {}) {
                 path.join(home, 'Library', 'Fonts'),
                 path.join('/', 'Library', 'Fonts'),
                 path.join('/', 'System', 'Library', 'Fonts'),
+                path.join('/', 'System', 'Library', 'Fonts', 'Supplemental'),
                 path.join(os.homedir(), 'Library', 'Application Support', 'Adobe', 'CoreSync', 'plugins', 'livetype', '.r')
             ];
         } else if (platform === 'windows') {
@@ -280,7 +281,7 @@ const SystemFonts = function (options = {}) {
             }, []);
     };
 
-    
+
 
     // this list includes all TTF, OTF, OTC, and DFONT files
     this.getAllFontFilesSync = () => [...allFontFiles];
@@ -585,7 +586,7 @@ const SystemFonts = function (options = {}) {
                     regEx.Pattern = "([\\w\\s]+?)(_[^_]*)?(\\.(ttf|otf|ttc))$"
                     FOR EACH FontFile IN sources
                     fontFileName = ofso.GetFileName(FontFile)
-                    IF regEx.Test(fontFileName) THEN    
+                    IF regEx.Test(fontFileName) THEN
                     Set objMatch = regEx.Execute(fontFileName)
                     otherName = Replace(fontFileName,objMatch.Item(0).Submatches(2),"") & "_0" & objMatch.Item(0).Submatches(2)
                     normalFontPath = oWinFonts.Self.Path & "\\" & fontFileName
@@ -613,19 +614,19 @@ const SystemFonts = function (options = {}) {
                             _data = _data.toString('utf8');
                             data = isNaN(_data) ? 0 : parseInt(_data);
                         });
-        
+
                         process.stderr.on('data', (_err) => {
                             _err = _err.toString('utf8');
                             if (_err) processErr = _err;
                         });
-    
+
                         const autoKill = setTimeout(() => {
                             if (!end) {
                                 console.error('Kill font install process after ' + timeout/1000 + ' seconds timeout');
                                 process.kill();
                             }
                         }, timeout);
-        
+
                         process.on('close', () => {
                             end = true;
                             clearTimeout(autoKill);
